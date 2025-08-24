@@ -1,0 +1,136 @@
+# Security script that checks for common vulnerabilities and misconfigurations on a Linux system.
+# Checks include:
+# - SSH root login disabled
+# - Firewall enabled
+# - Pending updates
+# - Time sync enabled
+
+class BaseCheck:
+    def __init__(self):
+        self.name = self.__class__.__name__
+        self.status = None       # only values are "pass" | "fail" | "na" | "error"
+        self.message = ""
+
+    def check(self):
+        raise NotImplementedError("Each check must implement this")
+
+
+# Get distro/version info from /etc/os-release
+class OSVersion(BaseCheck):
+    def __init__(self):
+        super().__init__()
+        self.name = "Get OS Version"
+        self.path = "/etc/os-release"
+
+    def check(self):
+        try:
+            with open(self.path) as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            self.status = "na"
+            self.message = "os-release file not found"
+            return self.status
+        except Exception as e:
+            self.status = "error"
+            self.message = f"could not read {self.path}: {e}"
+            return self.status
+
+        info = {}
+        for line in lines:
+            if "=" in line:
+                key, val = line.strip().split("=", 1)
+                info[key] = val.strip('"')
+
+        name = info.get("NAME", "Unknown")
+        version = info.get("VERSION", "")
+        version_id = info.get("VERSION_ID", "")
+        distro_id = info.get("ID", "")
+
+        self.status = "pass"  # We successfully read the version
+        self.message = f"{name} {version} (ID={distro_id}, VERSION_ID={version_id})"
+        return self.status
+
+
+# SSH root login refers to connecting directly as root via SSH.
+class SSHRootLoginDisabled(BaseCheck):
+    def __init__(self):
+        super().__init__()
+        self.name = "Check if SSH Root Login Disabled"
+        self.path = "/etc/ssh/sshd_config"
+
+    def check(self):
+        try:
+            with open(self.path) as f:
+                config = f.read()
+        except FileNotFoundError:
+            self.status = "na"
+            self.message = "sshd_config not found (SSH server likely not installed)"
+            return self.status
+        except Exception as e:
+            self.status = "error"
+            self.message = f"could not read {self.path}: {e}"
+            return self.status
+
+        if "PermitRootLogin no" in config:
+            self.status = "pass"
+            self.message = "PermitRootLogin is set to 'no'"
+        else:
+            self.status = "fail"
+            self.message = "PermitRootLogin not set to 'no'"
+        return self.status
+
+
+class FirewallEnabled(BaseCheck):
+    def __init__(self):
+        super().__init__()
+        self.name = "Check if the firewall is enabled"
+        self.path = "/etc/os-release"
+
+    def check(self):
+        # For now we only detect distro and report info; real firewall check later.
+        try:
+            with open(self.path) as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            self.status = "na"
+            self.message = "os-release not found"
+            return self.status
+        except Exception as e:
+            self.status = "error"
+            self.message = f"could not read {self.path}: {e}"
+            return self.status
+
+        info = {}
+        for line in lines:
+            if "=" in line:
+                key, val = line.strip().split("=", 1)
+                info[key] = val.strip('"')
+
+        distro_id = info.get("ID", "")
+        if distro_id == "ubuntu":
+            self.status = "na"
+            self.message = "Ubuntu detected; will check UFW in a later step"
+        else:
+            self.status = "na"
+            self.message = f"{distro_id or 'unknown'} detected; skipping firewall check for now"
+        return self.status
+
+
+class PendingUpdates(BaseCheck):
+    pass
+
+class TimeSyncEnabled(BaseCheck):
+    pass
+
+
+if __name__ == "__main__":
+    checks = [
+        OSVersion(),
+        SSHRootLoginDisabled(),
+        FirewallEnabled(),   # not finished
+        # TimeSyncEnabled(),
+    ]
+
+    for chk in checks:
+        status = chk.check()
+        print(f"{chk.name}: {status} - {chk.message}")
